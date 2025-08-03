@@ -6,6 +6,7 @@ Meridius Labs - Newsletter Backend API for Zapier Integration
 
 from flask import Flask, request, jsonify
 import sqlite3
+import os
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -22,9 +23,49 @@ DATABASE_PATH = Path("database/database.db")
 
 def get_db_connection():
     """Create and return a database connection."""
+    # Ensure database directory exists
+    DATABASE_PATH.parent.mkdir(exist_ok=True)
+    
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row  # This enables column access by name
     return conn
+
+
+def init_database():
+    """Initialize the database with tables if they don't exist."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Read and execute schema
+        schema_file = Path("database/schema.sql")
+        if schema_file.exists():
+            with open(schema_file, 'r') as file:
+                schema_sql = file.read()
+            cursor.executescript(schema_sql)
+            conn.commit()
+            print("✓ Database initialized successfully")
+        else:
+            print("⚠️ Schema file not found, creating basic tables")
+            # Create basic tables if schema file is not available
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    first_name TEXT,
+                    last_name TEXT,
+                    company_name TEXT,
+                    job_title TEXT,
+                    subscription_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    consent_given INTEGER NOT NULL DEFAULT 1 CHECK (consent_given IN (0, 1)),
+                    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'unsubscribed', 'pending'))
+                )
+            """)
+            conn.commit()
+        
+        conn.close()
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
 
 
 @app.route('/subscribe', methods=['POST'])
@@ -138,14 +179,15 @@ def root():
 
 
 if __name__ == '__main__':
-    # Ensure database exists
-    if not DATABASE_PATH.exists():
-        print("⚠️  Database not found. Please run initialize_db.py first.")
-        exit(1)
+    # Initialize database
+    init_database()
+    
+    # Get port from environment variable (Railway) or default to 5000
+    port = int(os.environ.get('PORT', 5000))
     
     print("🚀 Starting The Morning Fill Newsletter API...")
     print(f"📊 Database: {DATABASE_PATH}")
-    print("🌐 API will be available at: http://localhost:5000")
-    print("📝 Subscribe endpoint: POST http://localhost:5000/subscribe")
+    print(f"🌐 API will be available on port: {port}")
+    print("📝 Subscribe endpoint: POST /subscribe")
     
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=False, host='0.0.0.0', port=port) 
